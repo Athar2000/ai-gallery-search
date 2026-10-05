@@ -1,0 +1,68 @@
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ai_gallery
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg2://postgres:postgres@postgres:5432/ai_gallery
+      REDIS_URL: redis://redis:6379/0
+      CORS_ORIGINS: '["http://localhost:5173"]'
+    ports:
+      - "8000:8000"
+    volumes:
+      - photo_storage:/app/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # worker: (enabled from Phase 3 onward — background image processing)
+  # worker:
+  #   build: ./backend
+  #   command: celery -A app.workers.celery_app worker --loglevel=info
+  #   env_file: .env
+  #   environment:
+  #     DATABASE_URL: postgresql+psycopg2://postgres:postgres@postgres:5432/ai_gallery
+  #     REDIS_URL: redis://redis:6379/0
+  #   volumes:
+  #     - photo_storage:/app/storage
+  #   depends_on:
+  #     - postgres
+  #     - redis
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: http://localhost:8000
+    restart: unless-stopped
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+  photo_storage:
